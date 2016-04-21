@@ -207,7 +207,12 @@ geom_ptr geometry_builder::create_simple_poly(GeometryFactory &gf,
 {
     std::unique_ptr<LinearRing> shell(gf.createLinearRing(coords.release()));
     std::unique_ptr<std::vector<Geometry *> > empty(new std::vector<Geometry *>);
-    geom_ptr geom(gf.createPolygon(shell.release(), empty.release()));
+    geom_ptr polygon(gf.createPolygon(shell.release(), empty.release()));
+
+    // FIXME someone better at C++ could probably write this better
+    std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+    newmultipoly->push_back(polygon.get());
+    geom_ptr geom(gf.createMultiPolygon(*newmultipoly));
 
     if (geom->isEmpty()) {
         throw std::runtime_error("Excluding empty polygon.");
@@ -219,6 +224,13 @@ geom_ptr geometry_builder::create_simple_poly(GeometryFactory &gf,
             geom = geom_ptr(geom->buffer(0));
             if (geom->isEmpty() || !geom->isValid()) {
                 throw std::runtime_error("Excluding unrecoverable broken polygon.");
+            }
+            if ( geom->getGeometryTypeId() == GEOS_POLYGON ) {
+                // FIXME someone better at C++/geos could write this better
+                // Need to convert back to multipolygon
+                std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                newmultipoly->push_back(geom.get());
+                geom = geom_ptr(gf.createMultiPolygon(*newmultipoly));
             }
         }
     }
@@ -499,6 +511,15 @@ geometry_builder::pg_geoms_t geometry_builder::build_polygons(const multinodelis
                 geom_ptr multipoly(gf.createMultiPolygon(polygons.release()));
 
                 if (!multipoly->isEmpty()) {
+
+                    if ( multipoly->getGeometryTypeId() == GEOS_POLYGON ) {
+                        // FIXME someone better at C++/geos could write this better
+                        // Need to convert back to multipolygon
+                        std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                        newmultipoly->push_back(multipoly.get());
+                        multipoly = geom_ptr(gf.createMultiPolygon(*newmultipoly));
+                    }
+
                     if (!multipoly->isValid() && !excludepoly) {
                         multipoly = geom_ptr(multipoly->buffer(0));
                         multipoly->normalize();
@@ -512,17 +533,32 @@ geometry_builder::pg_geoms_t geometry_builder::build_polygons(const multinodelis
                 }
             } else {
                 for(unsigned i=0; i<toplevelpolygons; i++) {
-                    geom_ptr poly(polygons->at(i));
-                    if (!poly->isEmpty()) {
-                        if (!poly->isValid() && !excludepoly) {
-                            poly = geom_ptr(poly->buffer(0));
-                            poly->normalize();
-                            if (!!poly->isEmpty() && poly->isValid()) {
-                                wkbs.emplace_back(poly.get(), true, projection);
+                    // Create a new vector just for this one polygon. The
+                    // createMultiPolygon func only takes a vector
+                    // FIXME someone better at C++ could probably make this better
+                    std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                    newmultipoly->push_back(polygons->at(i));
+                    geom_ptr multipoly(gf.createMultiPolygon(*newmultipoly));
+
+                    if (!multipoly->isEmpty()) {
+                        if (!multipoly->isValid() && !excludepoly) {
+                            multipoly = geom_ptr(multipoly->buffer(0));
+
+                            if ( multipoly->getGeometryTypeId() == GEOS_POLYGON ) {
+                                // FIXME someone better at C++/geos could write this better
+                                // Need to convert back to multipolygon
+                                std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                                newmultipoly->push_back(multipoly.get());
+                                multipoly = geom_ptr(gf.createMultiPolygon(*newmultipoly));
+                            }
+
+                            multipoly->normalize();
+                            if (!!multipoly->isEmpty() && multipoly->isValid()) {
+                                wkbs.emplace_back(multipoly.get(), true, projection);
                             }
                         } else {
-                            poly->normalize();
-                            wkbs.emplace_back(poly.get(), true, projection);
+                            multipoly->normalize();
+                            wkbs.emplace_back(multipoly.get(), true, projection);
                         }
                     }
                 }
@@ -706,6 +742,14 @@ geometry_builder::pg_geoms_t geometry_builder::build_both(const multinodelist_t 
                 }
                 multipoly->normalize();
 
+                if ( multipoly->getGeometryTypeId() == GEOS_POLYGON ) {
+                    // FIXME someone better at C++/geos could write this better
+                    // Need to convert back to multipolygon
+                    std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                    newmultipoly->push_back(multipoly.get());
+                    multipoly = geom_ptr(gf.createMultiPolygon(*newmultipoly));
+                }
+
                 if (!multipoly->isEmpty() && multipoly->isValid()) {
                     wkbs.emplace_back(multipoly.get(), true, projection);
                 }
@@ -714,13 +758,24 @@ geometry_builder::pg_geoms_t geometry_builder::build_both(const multinodelist_t 
             {
                 for(unsigned i=0; i<toplevelpolygons; i++)
                 {
-                    geom_ptr poly(polygons->at(i));
-                    if (!poly->isValid() && !excludepoly) {
-                        poly = geom_ptr(poly->buffer(0));
-                        poly->normalize();
+                    std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                    newmultipoly->push_back(polygons->at(i));
+                    geom_ptr multipoly(gf.createMultiPolygon(*newmultipoly));
+
+                    if (!multipoly->isValid() && !excludepoly) {
+                        multipoly = geom_ptr(multipoly->buffer(0));
+                        if ( multipoly->getGeometryTypeId() == GEOS_POLYGON ) {
+                            // FIXME someone better at C++/geos could write this better
+                            // Need to convert back to multipolygon
+                            std::unique_ptr<std::vector<Geometry*> > newmultipoly(new std::vector<Geometry*>);
+                            newmultipoly->push_back(multipoly.get());
+                            multipoly = geom_ptr(gf.createMultiPolygon(*newmultipoly));
+                        }
                     }
-                    if (!poly->isEmpty() && poly->isValid()) {
-                        wkbs.emplace_back(poly.get(), true, projection);
+                    multipoly->normalize();
+
+                    if (!multipoly->isEmpty() && multipoly->isValid()) {
+                        wkbs.emplace_back(multipoly.get(), true, projection);
                     }
                 }
             }
