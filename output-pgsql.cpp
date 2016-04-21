@@ -631,7 +631,7 @@ output_pgsql_t::output_pgsql_t(const middle_query_t* mid, const options_t &o)
                 break;
             case t_poly:
                 name += "_polygon";
-                type = "GEOMETRY"; // Actually POLGYON & MULTIPOLYGON but no way to limit to just these two
+                type = "MULTIPOLYGON";
                 break;
             case t_roads:
                 name += "_roads";
